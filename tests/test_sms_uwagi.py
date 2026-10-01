@@ -537,3 +537,64 @@ async def test_options_flow_naglowki_blad(hass: HomeAssistant):
         result["flow_id"], {CONF_SMS_HEADERS: "Authorization Bearer x"}
     )
     assert result["type"] == "form" and result["errors"] == {"base": "sms_headers_invalid"}
+
+
+# ------------------------------------------------- dwie pory sprawdzania
+
+def test_oblicz_interwal():
+    from datetime import datetime
+    from custom_components.librus_apix.coordinator import oblicz_interwal
+    from custom_components.librus_apix.const import (
+        CONF_SCAN_INTERVAL, CONF_SCAN_INTERVAL_SZKOLA, CONF_SZKOLA_OD, CONF_SZKOLA_DO, CONF_SZKOLA_DNI_ROBOCZE,
+    )
+    opcje = {CONF_SCAN_INTERVAL: 180, CONF_SCAN_INTERVAL_SZKOLA: 55, CONF_SZKOLA_OD: "07:00:00", CONF_SZKOLA_DO: "15:00:00"}
+    sroda = datetime(2026, 9, 30)  # sroda
+
+    # w szkole
+    i, tryb = oblicz_interwal(opcje, sroda.replace(hour=9, minute=10))
+    assert (i, tryb) == (timedelta(minutes=55), "szkola")
+    # granica: 07:00 -> szkola, 15:00 -> poza
+    assert oblicz_interwal(opcje, sroda.replace(hour=7))[1] == "szkola"
+    assert oblicz_interwal(opcje, sroda.replace(hour=15))[1] == "poza_szkola"
+    # po szkole: pelne 180 min (do jutra 07:00 daleko)
+    assert oblicz_interwal(opcje, sroda.replace(hour=16)) == (timedelta(minutes=180), "poza_szkola")
+    # noc 05:00 -> dociagniecie do 07:00 (2h zamiast 3h)
+    assert oblicz_interwal(opcje, sroda.replace(hour=5)) == (timedelta(hours=2), "poza_szkola")
+    # weekend (sobota 10:00) -> poza szkola, pelne 180 min (do poniedzialku daleko)
+    sobota = datetime(2026, 10, 3, 10, 0)
+    assert oblicz_interwal(opcje, sobota) == (timedelta(minutes=180), "poza_szkola")
+    # weekendy wlaczone do okna
+    assert oblicz_interwal({**opcje, CONF_SZKOLA_DNI_ROBOCZE: False}, sobota)[1] == "szkola"
+    # niedziela 06:00 -> poniedzialek 07:00 to 25h > 180 min -> 180
+    niedziela = datetime(2026, 10, 4, 6, 0)
+    assert oblicz_interwal(opcje, niedziela)[0] == timedelta(minutes=180)
+    # okno wylaczone (od >= do)
+    assert oblicz_interwal({**opcje, CONF_SZKOLA_OD: "15:00:00", CONF_SZKOLA_DO: "07:00:00"}, sroda.replace(hour=9)) == (timedelta(minutes=180), "poza_szkola")
+    # minimum 15 min i bledne wartosci
+    assert oblicz_interwal({**opcje, CONF_SCAN_INTERVAL_SZKOLA: 1}, sroda.replace(hour=9))[0] == timedelta(minutes=15)
+    assert oblicz_interwal({**opcje, CONF_SZKOLA_OD: "zle"}, sroda.replace(hour=9))[1] == "szkola"  # fallback 07:00
+    # domyslne (brak opcji)
+    assert oblicz_interwal({}, sroda.replace(hour=12)) == (timedelta(minutes=55), "szkola")
+    assert oblicz_interwal({}, sroda.replace(hour=20)) == (timedelta(minutes=120), "poza_szkola")
+
+
+async def test_koordynator_zmienia_interwal(hass: HomeAssistant):
+    from custom_components.librus_apix.const import CONF_SCAN_INTERVAL, CONF_SCAN_INTERVAL_SZKOLA
+    from homeassistant.util import dt as dt_util
+    from datetime import datetime
+
+    options = {CONF_SCAN_INTERVAL: 180, CONF_SCAN_INTERVAL_SZKOLA: 55}
+    w_szkole = datetime(2026, 9, 30, 10, 0, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    with patch("custom_components.librus_apix.coordinator.dt_util.now", return_value=w_szkole):
+        entry, _ = await _setup(hass, options, [OCENA1], [])
+        coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        assert coordinator.update_interval == timedelta(minutes=55)
+        st = hass.states.get("sensor.informacje_o_uczniu")
+        assert st.attributes["tryb_sprawdzania"] == "szkola" and st.attributes["interwal_minuty"] == 55
+
+    wieczor = datetime(2026, 9, 30, 20, 0, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    with patch("custom_components.librus_apix.coordinator.dt_util.now", return_value=wieczor):
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert coordinator.update_interval == timedelta(minutes=180)
+        assert hass.states.get("sensor.informacje_o_uczniu").attributes["tryb_sprawdzania"] == "poza_szkola"

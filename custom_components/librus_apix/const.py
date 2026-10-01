@@ -11,7 +11,11 @@ CONF_PASSWORD = "password"
 
 # Opcje integracji (Ustawienia -> Integracje -> Librus -> Konfiguruj)
 # Przechowywane w entry.options, wiec przetrwaja aktualizacje wtyczki.
-CONF_SCAN_INTERVAL = "scan_interval"  # minuty
+CONF_SCAN_INTERVAL = "scan_interval"  # minuty - poza godzinami szkoly
+CONF_SCAN_INTERVAL_SZKOLA = "scan_interval_szkola"  # minuty - w godzinach szkoly
+CONF_SZKOLA_OD = "szkola_od"  # "HH:MM:SS" poczatek okna szkolnego
+CONF_SZKOLA_DO = "szkola_do"  # "HH:MM:SS" koniec okna szkolnego
+CONF_SZKOLA_DNI_ROBOCZE = "szkola_dni_robocze"  # okno szkolne tylko pon-pt
 CONF_SMS_ENABLED = "sms_enabled"
 CONF_SMS_VERIFY_SSL = "sms_verify_ssl"
 CONF_SMS_URL_OCENY = "sms_url_oceny"
@@ -29,7 +33,11 @@ METHOD_POST = "post"          # parametry z adresu wysylane w body (application/
 METHOD_POST_JSON = "post_json"  # parametry z adresu wysylane w body jako JSON
 SMS_METHODS = (METHOD_GET, METHOD_POST, METHOD_POST_JSON)
 
-DEFAULT_SCAN_INTERVAL = 120  # minuty
+DEFAULT_SCAN_INTERVAL = 120  # minuty (poza szkola)
+DEFAULT_SCAN_INTERVAL_SZKOLA = 55  # minuty (w szkole: lekcja 45 min + przerwa)
+DEFAULT_SZKOLA_OD = "07:00:00"
+DEFAULT_SZKOLA_DO = "15:00:00"
+DEFAULT_SZKOLA_DNI_ROBOCZE = True
 MIN_SCAN_INTERVAL = 15
 DEFAULT_SMS_ENABLED = False
 DEFAULT_SMS_VERIFY_SSL = True

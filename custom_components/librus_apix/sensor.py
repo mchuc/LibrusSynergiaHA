@@ -87,12 +87,15 @@ class LibrusUczenSensor(CoordinatorEntity, SensorEntity):
         info = (self.coordinator.data or {}).get("student_info")
         if not info:
             return {}
+        data = self.coordinator.data or {}
         return {
             "klasa": info.class_name,
             "numer_w_klasie": info.number,
             "wychowawca": info.tutor,
             "szkola": info.school,
             "szczesliwy_numerek": info.lucky_number,
+            "tryb_sprawdzania": data.get("tryb_sprawdzania"),
+            "interwal_minuty": data.get("interwal_minuty"),
         }
 
 

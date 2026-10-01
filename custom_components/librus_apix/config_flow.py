@@ -16,6 +16,10 @@ from librus_apix.client import new_client
 from .const import (
     CONF_PUSH_NOTIFY,
     CONF_SCAN_INTERVAL,
+    CONF_SCAN_INTERVAL_SZKOLA,
+    CONF_SZKOLA_DNI_ROBOCZE,
+    CONF_SZKOLA_DO,
+    CONF_SZKOLA_OD,
     CONF_SMS_ENABLED,
     CONF_SMS_HEADERS,
     CONF_SMS_METHOD,
@@ -26,6 +30,10 @@ from .const import (
     CONF_SMS_VERIFY_SSL,
     CONF_WYSLIJ_TEST,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL_SZKOLA,
+    DEFAULT_SZKOLA_DNI_ROBOCZE,
+    DEFAULT_SZKOLA_DO,
+    DEFAULT_SZKOLA_OD,
     DEFAULT_SMS_ENABLED,
     DEFAULT_SMS_METHOD,
     DEFAULT_SMS_TEKST_OCENY,
@@ -158,20 +166,35 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data=user_input)
             opcje = user_input
 
+        minuty = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_SCAN_INTERVAL,
+                max=1440,
+                step=5,
+                unit_of_measurement="min",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        )
         schema = vol.Schema(
             {
                 vol.Optional(
+                    CONF_SZKOLA_OD, default=opcje.get(CONF_SZKOLA_OD, DEFAULT_SZKOLA_OD)
+                ): selector.TimeSelector(),
+                vol.Optional(
+                    CONF_SZKOLA_DO, default=opcje.get(CONF_SZKOLA_DO, DEFAULT_SZKOLA_DO)
+                ): selector.TimeSelector(),
+                vol.Optional(
+                    CONF_SZKOLA_DNI_ROBOCZE,
+                    default=opcje.get(CONF_SZKOLA_DNI_ROBOCZE, DEFAULT_SZKOLA_DNI_ROBOCZE),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SCAN_INTERVAL_SZKOLA,
+                    default=opcje.get(CONF_SCAN_INTERVAL_SZKOLA, DEFAULT_SCAN_INTERVAL_SZKOLA),
+                ): minuty,
+                vol.Optional(
                     CONF_SCAN_INTERVAL,
                     default=opcje.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_SCAN_INTERVAL,
-                        max=1440,
-                        step=5,
-                        unit_of_measurement="min",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
+                ): minuty,
                 vol.Optional(
                     CONF_SMS_ENABLED,
                     default=opcje.get(CONF_SMS_ENABLED, DEFAULT_SMS_ENABLED),

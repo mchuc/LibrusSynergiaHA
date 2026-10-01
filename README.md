@@ -89,7 +89,7 @@ Lub ręcznie:
 
 Po dodaniu integracji: **Ustawienia → Urządzenia i usługi → Librus Synergia HA → Konfiguruj**. Tam ustawisz:
 
-- **Jak często sprawdzać Librus** (minuty, domyślnie 120, minimum 15),
+- **Dwie pory sprawdzania**: w godzinach szkoły (domyślnie 07:00–15:00, pon–pt) co **55 min** (lekcja + przerwa), poza szkołą co **120 min** (minimum 15 min). Pierwsze poranne sprawdzenie jest dociągane do początku lekcji. Aktualny tryb i interwał widać w atrybutach `tryb_sprawdzania` / `interwal_minuty` sensora „Informacje o uczniu”.
 - **bramkę SMS** — patrz sekcja [📲 Bramka SMS](#-bramka-sms-własny-serwer).
 
 Opcje są zapisywane w bazie Home Assistant (`.storage/core.config_entries`), a nie w plikach wtyczki — **aktualizacja integracji przez HACS ich nie nadpisuje**.
@@ -357,7 +357,7 @@ automation:
 ## 🔔 Automatyzacje powiadomień na telefon
 
 Integracja wysyła zdarzenia Home Assistant gdy pojawi się nowa wiadomość, ocena lub uwaga.
-Zdarzenia są wykrywane przy każdym odświeżeniu (domyślnie co 2h, interwał ustawisz w opcjach integracji).
+Zdarzenia są wykrywane przy każdym odświeżeniu (domyślnie co 55 min w godzinach szkoły i co 2 h poza nimi — ustawisz to w opcjach integracji).
 Lista już widzianych elementów jest zapisywana w `.storage` Home Assistanta — pierwsze uruchomienie tylko zapamiętuje stan,
 a po restarcie HA **nie ma duplikatów**; oceny wystawione w czasie, gdy HA nie działał, zostaną wykryte przy pierwszym odświeżeniu po starcie.
 

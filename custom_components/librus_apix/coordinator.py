@@ -6,12 +6,21 @@ from typing import Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_SCAN_INTERVAL,
+    CONF_SCAN_INTERVAL_SZKOLA,
+    CONF_SZKOLA_DNI_ROBOCZE,
+    CONF_SZKOLA_DO,
+    CONF_SZKOLA_OD,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL_SZKOLA,
+    DEFAULT_SZKOLA_DNI_ROBOCZE,
+    DEFAULT_SZKOLA_DO,
+    DEFAULT_SZKOLA_OD,
     DOMAIN,
     MIN_SCAN_INTERVAL,
     SCAN_INTERVAL,
@@ -51,6 +60,66 @@ EVENT_NOWA_OCENA = f"{DOMAIN}_nowa_ocena"
 EVENT_NOWE_ZADANIE = f"{DOMAIN}_nowe_zadanie"
 EVENT_NOWE_ZDARZENIE = f"{DOMAIN}_nowe_zdarzenie"
 EVENT_NOWA_UWAGA = f"{DOMAIN}_nowa_uwaga"
+
+
+def _godzina(tekst: Any, domyslna: str) -> timedelta:
+    """'HH:MM[:SS]' -> timedelta od polnocy (bledny format -> domyslna)."""
+    for wartosc in (tekst, domyslna):
+        try:
+            czesci = [int(x) for x in str(wartosc).split(":")]
+            h, m = czesci[0], czesci[1] if len(czesci) > 1 else 0
+            if 0 <= h <= 24 and 0 <= m < 60:
+                return timedelta(hours=h, minutes=m)
+        except (TypeError, ValueError, IndexError):
+            continue
+    return timedelta(hours=7)
+
+
+def _minuty(wartosc: Any, domyslna: int) -> int:
+    try:
+        return max(int(float(wartosc)), MIN_SCAN_INTERVAL)
+    except (TypeError, ValueError):
+        return domyslna
+
+
+def oblicz_interwal(opcje: Dict[str, Any], teraz: datetime) -> tuple:
+    """Zwroc (interwal, tryb) dla chwili `teraz` (czas lokalny).
+
+    W oknie szkolnym (np. 07:00-15:00, dni robocze) sprawdzamy czesciej; poza nim rzadziej,
+    ale nie dalej niz do poczatku nastepnego okna szkolnego (zeby pierwsze sprawdzenie
+    po nocy nie przesunelo sie w glab lekcji).
+    """
+    w_szkole_min = _minuty(opcje.get(CONF_SCAN_INTERVAL_SZKOLA), DEFAULT_SCAN_INTERVAL_SZKOLA)
+    poza_min = _minuty(opcje.get(CONF_SCAN_INTERVAL), DEFAULT_SCAN_INTERVAL)
+    od = _godzina(opcje.get(CONF_SZKOLA_OD), DEFAULT_SZKOLA_OD)
+    do = _godzina(opcje.get(CONF_SZKOLA_DO), DEFAULT_SZKOLA_DO)
+    tylko_robocze = opcje.get(CONF_SZKOLA_DNI_ROBOCZE, DEFAULT_SZKOLA_DNI_ROBOCZE)
+
+    if od >= do:
+        # okno wylaczone / bledne -> zawsze tryb "poza szkola"
+        return timedelta(minutes=poza_min), "poza_szkola"
+
+    def _dzien_szkolny(d: datetime) -> bool:
+        return not tylko_robocze or d.weekday() < 5
+
+    polnoc = teraz.replace(hour=0, minute=0, second=0, microsecond=0)
+    od_dt, do_dt = polnoc + od, polnoc + do
+    if _dzien_szkolny(teraz) and od_dt <= teraz < do_dt:
+        return timedelta(minutes=w_szkole_min), "szkola"
+
+    # poza szkola: znajdz poczatek najblizszego okna szkolnego (do 8 dni do przodu)
+    nastepny_start: Optional[datetime] = None
+    for dni in range(0, 8):
+        kandydat = polnoc + timedelta(days=dni) + od
+        if kandydat > teraz and _dzien_szkolny(kandydat):
+            nastepny_start = kandydat
+            break
+    interwal = timedelta(minutes=poza_min)
+    if nastepny_start is not None:
+        do_startu = nastepny_start - teraz
+        if timedelta(minutes=1) < do_startu < interwal:
+            interwal = do_startu
+    return interwal, "poza_szkola"
 
 
 def _wartosc_oceny(grade_str: str) -> Optional[float]:
@@ -160,12 +229,9 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
         interwal = SCAN_INTERVAL
+        self.tryb_sprawdzania: str = "poza_szkola"
         if config_entry is not None:
-            try:
-                minuty = int(config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
-                interwal = timedelta(minutes=max(minuty, MIN_SCAN_INTERVAL))
-            except (TypeError, ValueError):
-                pass
+            interwal, self.tryb_sprawdzania = oblicz_interwal(dict(config_entry.options), dt_util.now())
 
         super().__init__(
             hass,
@@ -173,6 +239,16 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=interwal,
         )
+
+    def _ustaw_interwal(self) -> None:
+        """Dobierz interwal kolejnego sprawdzenia do pory dnia (szkola / poza szkola)."""
+        if self._entry is None:
+            return
+        interwal, tryb = oblicz_interwal(dict(self._entry.options), dt_util.now())
+        if interwal != self.update_interval or tryb != self.tryb_sprawdzania:
+            _LOGGER.debug("Tryb sprawdzania: %s, nastepne za %s", tryb, interwal)
+        self.update_interval = interwal
+        self.tryb_sprawdzania = tryb
 
     # ------------------------------------------------------------ magazyn HA
 
@@ -238,6 +314,10 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
         """Pobierz aktualne dane z API Librus."""
         from datetime import date as _date
         current_sem = 1 if _date.today().month >= 9 else 2
+
+        # Interwal kolejnego odswiezenia zalezy od pory dnia - ustawiamy przed pobraniem,
+        # koordynator uzyje go planujac nastepne sprawdzenie.
+        self._ustaw_interwal()
 
         try:
             student_info = await self.client.async_get_student_information()
@@ -322,6 +402,8 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
 
             result = {
                 "student_info": student_info,
+                "tryb_sprawdzania": self.tryb_sprawdzania,
+                "interwal_minuty": int(self.update_interval.total_seconds() // 60) if self.update_interval else None,
                 "oceny": grades,
                 "oceny_wg_przedmiotu": oceny_wg_przedmiotu,
                 "srednie": srednie,
